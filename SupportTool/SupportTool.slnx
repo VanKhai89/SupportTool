@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="MemoryViewer/MemoryViewer.csproj" Id="1aecd97b-1581-443e-8180-1e2722e97d5f" />
   <Project Path="RightMenu/RightMenu.csproj" />
 </Solution>
