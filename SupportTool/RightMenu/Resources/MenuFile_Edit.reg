@@ -1,0 +1,13 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\SystemFileAssociations\.otf\shell\KhaiPVTool]
+"MUIVerb"="KhaiPV Tool"
+"Icon"="D:\\Tool\\Icon\\ic_menu_khaipv.ico"
+"ExtendedSubCommandsKey"="SystemFileAssociations\\.otf\\ContextMenus\\KhaiPVTool"
+
+[HKEY_CLASSES_ROOT\SystemFileAssociations\.otf\ContextMenus\KhaiPVTool\shell\01_ExportCocos2dx]
+"Icon"="D:\\Tool\\Icon\\ic_pngtoico.ico"
+@="OTF TO TTF"
+
+[HKEY_CLASSES_ROOT\SystemFileAssociations\.otf\ContextMenus\KhaiPVTool\shell\01_ExportCocos2dx\command]
+@="\"D:\\Tool\\Soft\\otf2ttf.bat\" \"%1\""

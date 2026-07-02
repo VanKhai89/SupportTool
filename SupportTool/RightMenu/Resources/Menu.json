@@ -1,0 +1,7 @@
+{
+	"KhaiPV Tool": {
+		"MUIVerb": "KhaiPV Tool",
+		"Icon": "cmd.exe",
+		"ExtendedSubCommandsKey": "KhaiPVTool"
+	}
+}
