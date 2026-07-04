@@ -55,6 +55,13 @@ namespace MemoryViewer.Sources.Models
             set { _isFrozen = value; OnPropertyChanged(); }
         }
 
+        private bool _isHidden;
+        public bool IsHidden
+        {
+            get => _isHidden;
+            set { _isHidden = value; OnPropertyChanged(); }
+        }
+
         // --- Per-row data type: drives reading stride ---
         private MemoryDataType _dataType = MemoryDataType.Int32;
         public MemoryDataType DataType
