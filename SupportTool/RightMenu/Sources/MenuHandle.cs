@@ -54,6 +54,12 @@ internal class MenuHandle
                 case "INCLUDE_CPP":
                     SupportDLLProject.Run(args[1]);
                     break;
+                case "RESIZE_IMAGE":
+                    ImageUtils.Resize(args[1]);
+                    break;
+                case "COPY_BASE64":
+                    ImageUtils.CopyBase64(args[1]);
+                    break;
                 default:
                     Console.WriteLine("Invalid command.");
                     break;

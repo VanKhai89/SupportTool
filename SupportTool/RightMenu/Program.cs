@@ -1,7 +1,9 @@
-﻿static void Main(string[] args)
+﻿using static System.Net.Mime.MediaTypeNames;
+
+static class Program
 {
-    //to do
-    //RegistryMenu.Run(args);
-    MenuHandle.Run(args);
-    //SupportDLLProject.Run(@"E:\Project\TSOnline\TSOnlineAll\TSOnline\Wsock");
+    static void Main(string[] arg)
+    {
+        MenuHandle.Run(arg);
+    }
 }

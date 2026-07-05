@@ -37,6 +37,10 @@ namespace MemoryViewer.Sources.Views
 
             this.Controls.AddRange(new Control[] { lstProcesses, btnRefresh, btnSelect });
 
+            // Enable High DPI AutoScaling
+            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
+
             btnRefresh.Click += (s, e) => LoadProcesses();
             btnSelect.Click += (s, e) => {
                 if (lstProcesses.SelectedItem is ProcessItem item)

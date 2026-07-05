@@ -327,6 +327,10 @@ namespace MemoryViewer.Sources.Views
             this.Controls.Add(tabControl);
             this.Controls.Add(statusStrip);
             this.Controls.Add(pnlTop);
+
+            // Enable High DPI AutoScaling
+            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
         }
 
         /// <summary>Tạo DataGridView với đầy đủ cột, dùng chung cho cả 2 tab.</summary>

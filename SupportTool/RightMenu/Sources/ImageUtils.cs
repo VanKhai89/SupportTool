@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -8,6 +8,39 @@ using System.Threading.Tasks;
 
 internal static class ImageUtils
 {
+    public static void Resize(string file)
+    {
+        int w, h;
+        Console.Write("Nhập chiều rộng: ");
+        while (!int.TryParse(Console.ReadLine(), out w) && w <= 0)
+        {
+            Console.Write("Nhập lại chiều rộng: ");
+        }
+        Console.Write("Nhập chiều cao: ");
+        while (!int.TryParse(Console.ReadLine(), out h) && h <= 0)
+        {
+            Console.Write("Nhập lại chiều cao: ");
+        }
+        var extension = Path.GetExtension(file);
+        var fileName = Path.GetFileNameWithoutExtension(file);
+        var parent = Path.GetDirectoryName(file);
+        var outFile = Path.Combine(parent, $"{fileName}_{w}_{h}{extension}");
+        var magisk = $"magick {file} -resize {w}x{h} {outFile}";
+        Utils.RunCommand(magisk);
+    }
+
+    public static void CopyBase64(string file)
+    {
+        var bytes = File.ReadAllBytes(file);
+        var base64 = Convert.ToBase64String(bytes);
+        var ext = Path.GetExtension(file).TrimStart('.').ToLower();
+        var mimeType = ext == "jpg" || ext == "jpeg" ? "jpeg" : ext;
+        var base64String = $"data:image/{mimeType};base64,{base64}";
+        Console.WriteLine(base64String);
+        base64.CopyToClipboard();
+        //Console.ReadKey();
+    }
+
     public static void MakeIcon(string file)
     {
         int input = 0;

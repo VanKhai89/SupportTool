@@ -51,11 +51,21 @@ namespace MemoryViewer.Sources.Views
         public IntPtr ResolvedAddress { get; private set; }
 
         // ── Constants ─────────────────────────────────────────────────────────
-        private const int FORM_W  = 640;
-        private const int ROW_H   = 26;
-        private const int BTN_W   = 22;
-        private const int GAP     = 2;
-        private int _pnlTop;            // Y of pnlPointer, set in InitializeComponent
+        private const int BASE_FORM_W = 640;
+        private const int BASE_ROW_H  = 26;
+        private const int BASE_BTN_W  = 22;
+        private const int BASE_GAP    = 2;
+        private const int BASE_PREVIEW_W = 240;
+
+        private SizeF _currentScale = new SizeF(1f, 1f);
+
+        protected override void ScaleControl(SizeF factor, BoundsSpecified specified)
+        {
+            base.ScaleControl(factor, specified);
+            _currentScale = new SizeF(_currentScale.Width * factor.Width, _currentScale.Height * factor.Height);
+        }
+
+        private int S(int value) => (int)(value * _currentScale.Width);
 
         private static readonly string[] TypeItems =
         { "Byte", "2 Bytes (Int16)", "4 Bytes (Int32)", "8 Bytes (Int64)", "Float", "Double" };
@@ -86,7 +96,7 @@ namespace MemoryViewer.Sources.Views
             MaximizeBox      = false;
             MinimizeBox      = false;
             StartPosition    = FormStartPosition.CenterParent;
-            ClientSize       = new Size(FORM_W, 300);
+            ClientSize       = new Size(BASE_FORM_W, 300);
 
             int y = 10;
 
@@ -103,7 +113,7 @@ namespace MemoryViewer.Sources.Views
             {
                 Text      = "= ???",
                 Location  = new Point(296, y + 3),
-                Width     = FORM_W - 300,
+                Width     = BASE_FORM_W - 300,
                 ForeColor = Color.DarkBlue,
                 Font      = new Font("Consolas", 9)
             };
@@ -116,7 +126,7 @@ namespace MemoryViewer.Sources.Views
             {
                 Text     = "No description",
                 Location = new Point(10, y),
-                Width    = FORM_W - 20
+                Width    = BASE_FORM_W - 20
             };
             y += 26;
 
@@ -148,11 +158,10 @@ namespace MemoryViewer.Sources.Views
             y += 26;
 
             // ── Pointer panel ──────────────────────────────────────────────
-            _pnlTop    = y;
             pnlPointer = new Panel
             {
                 Location    = new Point(10, y),
-                Width       = FORM_W - 20,
+                Width       = BASE_FORM_W - 20,
                 Height      = 60,
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible     = false
@@ -254,6 +263,10 @@ namespace MemoryViewer.Sources.Views
             btnOk.Click += BtnOk_Click;
 
             UpdateLayout();
+
+            // Enable High DPI AutoScaling
+            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -275,18 +288,18 @@ namespace MemoryViewer.Sources.Views
                 {
                     Location  = new Point(0, y),
                     Width     = rowW,
-                    Height    = ROW_H,
+                    Height    = S(BASE_ROW_H),
                     BackColor = (i % 2 == 0) ? Color.White : Color.FromArgb(246, 249, 255)
                 };
 
-                int rx = 1;
+                int rx = S(1);
 
                 // ── [<] Decrement button ──────────────────────────────────
                 var btnDec = new Button
                 {
                     Text      = "<",
-                    Location  = new Point(rx, 2),
-                    Width     = BTN_W, Height = ROW_H - 4,
+                    Location  = new Point(rx, S(2)),
+                    Width     = S(BASE_BTN_W), Height = S(BASE_ROW_H) - S(4),
                     Font      = new Font("Consolas", 8),
                     FlatStyle = FlatStyle.Flat
                 };
@@ -297,7 +310,7 @@ namespace MemoryViewer.Sources.Views
                     SetOffsetBox(ci, _offsets[ci]);
                     UpdatePreview();
                 };
-                rx += BTN_W + GAP;
+                rx += S(BASE_BTN_W) + S(BASE_GAP);
 
                 // ── "Offset N" prefix label for last row ──────────────────
                 if (isLast)
@@ -305,26 +318,25 @@ namespace MemoryViewer.Sources.Views
                     var pfx = new Label
                     {
                         Text      = $"Offset {_offsets.Count}",
-                        Location  = new Point(rx, 4),
-                        Width     = 58,
-                        Height    = ROW_H - 6,
+                        Location  = new Point(rx, S(4)),
+                        Width     = S(58),
+                        Height    = S(BASE_ROW_H) - S(6),
                         ForeColor = Color.Gray,
                         Font      = new Font(Font, FontStyle.Italic),
                         TextAlign = ContentAlignment.MiddleLeft
                     };
                     row.Controls.Add(pfx);
-                    rx += 60;
+                    rx += S(60);
                 }
 
                 // ── Offset TextBox ────────────────────────────────────────
                 //  Remaining width: rowW - rx - GAP - BTN_W(>) - GAP - previewW - margin
-                const int previewW = 240;
-                int txtW = rowW - rx - GAP - BTN_W - GAP - previewW - 4;
-                if (txtW < 80) txtW = 80;
+                int txtW = rowW - rx - S(BASE_GAP) - S(BASE_BTN_W) - S(BASE_GAP) - S(BASE_PREVIEW_W) - S(4);
+                if (txtW < S(80)) txtW = S(80);
 
                 var txtOff = new TextBox
                 {
-                    Location  = new Point(rx, 3),
+                    Location  = new Point(rx, S(3)),
                     Width     = txtW,
                     Text      = FormatOffset(_offsets[i]),
                     Font      = new Font("Consolas", 9),
@@ -339,14 +351,14 @@ namespace MemoryViewer.Sources.Views
                         _offsets[ci] = v;
                     UpdatePreview();
                 };
-                rx += txtW + GAP;
+                rx += txtW + S(BASE_GAP);
 
                 // ── [>] Increment button ──────────────────────────────────
                 var btnInc = new Button
                 {
                     Text      = ">",
-                    Location  = new Point(rx, 2),
-                    Width     = BTN_W, Height = ROW_H - 4,
+                    Location  = new Point(rx, S(2)),
+                    Width     = S(BASE_BTN_W), Height = S(BASE_ROW_H) - S(4),
                     Font      = new Font("Consolas", 8),
                     FlatStyle = FlatStyle.Flat
                 };
@@ -357,14 +369,14 @@ namespace MemoryViewer.Sources.Views
                     SetOffsetBox(ci, _offsets[ci]);
                     UpdatePreview();
                 };
-                rx += BTN_W + GAP;
+                rx += S(BASE_BTN_W) + S(BASE_GAP);
 
                 // ── Step preview label (blue, link-cursor) ────────────────
                 var lblStep = new Label
                 {
-                    Location  = new Point(rx, 4),
-                    Width     = rowW - rx - 2,
-                    Height    = ROW_H - 6,
+                    Location  = new Point(rx, S(4)),
+                    Width     = rowW - rx - S(2),
+                    Height    = S(BASE_ROW_H) - S(6),
                     ForeColor = Color.Blue,
                     Font      = new Font("Consolas", 8),
                     Text      = "...",
@@ -375,16 +387,16 @@ namespace MemoryViewer.Sources.Views
 
                 row.Controls.AddRange(new Control[] { btnDec, txtOff, btnInc, lblStep });
                 pnlRows.Controls.Add(row);
-                y += ROW_H;
+                y += S(BASE_ROW_H);
             }
 
             pnlRows.Height = y;
 
             // Reposition base address row below offset rows
-            int baseRowY = y + 1;
-            txtBaseAddr.Location    = new Point(2, baseRowY + 1);
-            lblBasePreview.Location = new Point(txtBaseAddr.Right + 4, baseRowY + 4);
-            pnlPointer.Height       = baseRowY + ROW_H + 6;
+            int baseRowY = y + S(1);
+            txtBaseAddr.Location    = new Point(S(2), baseRowY + S(1));
+            lblBasePreview.Location = new Point(txtBaseAddr.Right + S(4), baseRowY + S(4));
+            pnlPointer.Height       = baseRowY + S(BASE_ROW_H) + S(6);
 
             UpdateLayout();
         }
@@ -394,18 +406,23 @@ namespace MemoryViewer.Sources.Views
         // ─────────────────────────────────────────────────────────────────────
         private void UpdateLayout()
         {
+            if (pnlPointer == null || btnAddOffset == null || btnOk == null || btnCancel == null) return;
+
             int afterPanel = chkPointer.Checked
-                ? _pnlTop + pnlPointer.Height + 6
-                : _pnlTop;
+                ? pnlPointer.Bottom + S(6)
+                : pnlPointer.Top;
 
-            btnAddOffset.Location    = new Point(10,  afterPanel + 2);
-            btnRemoveOffset.Location = new Point(118, afterPanel + 2);
+            btnAddOffset.Location    = new Point(S(10),  afterPanel + S(2));
+            btnRemoveOffset.Location = new Point(S(118), afterPanel + S(2));
 
-            int okY = chkPointer.Checked ? afterPanel + 38 : afterPanel + 10;
+            int okY = chkPointer.Checked ? afterPanel + S(38) : afterPanel + S(10);
 
-            btnOk.Location     = new Point(FORM_W - 194, okY);
-            btnCancel.Location = new Point(FORM_W - 102, okY);
-            ClientSize         = new Size(FORM_W, okY + 42);
+            int formW = ClientSize.Width;
+            if (formW == 0) formW = BASE_FORM_W; // fallback if called early
+
+            btnOk.Location     = new Point(formW - S(194), okY);
+            btnCancel.Location = new Point(formW - S(102), okY);
+            ClientSize         = new Size(formW, okY + S(42));
         }
 
         // ─────────────────────────────────────────────────────────────────────
