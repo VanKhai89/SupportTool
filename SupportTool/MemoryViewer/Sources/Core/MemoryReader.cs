@@ -68,22 +68,18 @@ namespace MemoryViewer.Sources.Core
         public IntPtr ResolvePointer(IntPtr baseAddress, int[] offsets)
         {
             IntPtr currentAddress = baseAddress;
+            int ptrSize = _processManager.TargetPtrSize;
 
             foreach (int offset in offsets)
             {
-                byte[] ptrBytes = ReadBytes(currentAddress, IntPtr.Size);
-                
-                if (IntPtr.Size == 4) // 32-bit process
-                {
-                    currentAddress = (IntPtr)BitConverter.ToInt32(ptrBytes, 0);
-                }
-                else // 64-bit process
-                {
-                    currentAddress = (IntPtr)BitConverter.ToInt64(ptrBytes, 0);
-                }
+                byte[] ptrBytes = ReadBytes(currentAddress, ptrSize);
 
-                if (currentAddress == IntPtr.Zero) break; // Invalid pointer chain
-                
+                currentAddress = ptrSize == 4
+                    ? (IntPtr)BitConverter.ToInt32(ptrBytes, 0)
+                    : (IntPtr)BitConverter.ToInt64(ptrBytes, 0);
+
+                if (currentAddress == IntPtr.Zero) break;
+
                 currentAddress = IntPtr.Add(currentAddress, offset);
             }
 

@@ -48,7 +48,13 @@ namespace MemoryViewer.Sources.Views
         private bool _updatingOffset;   // suppress re-entrant TextChanged
 
         // ── Output ────────────────────────────────────────────────────────────
-        public IntPtr ResolvedAddress { get; private set; }
+        public IntPtr    ResolvedAddress { get; private set; }
+        /// <summary>true nếu user chọn Pointer mode.</summary>
+        public bool      IsPointer       { get; private set; }
+        /// <summary>Biểu thức base address mà user nhập (module+offset hoặc hex).</summary>
+        public string    BaseExpression  { get; private set; } = string.Empty;
+        /// <summary>Danh sách offsets (IsPointer=true); empty nếu static.</summary>
+        public List<int> OutputOffsets   { get; private set; } = new();
 
         // ── Constants ─────────────────────────────────────────────────────────
         private const int BASE_FORM_W = 640;
@@ -77,13 +83,48 @@ namespace MemoryViewer.Sources.Views
         };
 
         // ─────────────────────────────────────────────────────────────────────
-        public AddAddressForm(MemoryReader? reader = null, ProcessManager? processManager = null)
+        public AddAddressForm(MemoryReader? reader = null, ProcessManager? processManager = null,
+                              BaseAddressConfig? existingConfig = null)
         {
             _reader  = reader;
             _procMgr = processManager;
             InitializeComponent();
-            _offsets.Add(0);   // default: 1 offset row
+
+            if (existingConfig != null)
+            {
+                // Pre-populate từ existing config
+                // 1. Setup offsets trước (trước khi RebuildRows)
+                if (existingConfig.IsPointer)
+                {
+                    _offsets.Clear();
+                    if (existingConfig.Offsets.Length > 0)
+                        _offsets.AddRange(existingConfig.Offsets);
+                    else
+                        _offsets.Add(0);
+                }
+                else
+                {
+                    _offsets.Add(0);
+                }
+            }
+            else
+            {
+                _offsets.Add(0);   // default: 1 offset row
+            }
+
             RebuildRows();
+
+            // 2. Set text sau RebuildRows (controls đã sẵn sàng), trước CheckedChanged
+            if (existingConfig != null)
+            {
+                if (existingConfig.IsPointer)
+                    txtBaseAddr.Text = existingConfig.Expression;
+                else
+                    txtFinalAddr.Text = existingConfig.Expression;
+
+                // 3. Cuối cùng set checkbox → kích hoạt CheckedChanged → UpdatePreview()
+                chkPointer.Checked = existingConfig.IsPointer;
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -177,15 +218,15 @@ namespace MemoryViewer.Sources.Views
             // Base address row (repositioned by RebuildRows)
             txtBaseAddr = new TextBox
             {
-                Location         = new Point(2, 2),
-                Width            = pnlPointer.Width - 130,
-                Font             = new Font("Consolas", 9),
-                PlaceholderText  = "game.exe+0x1234  or  0x12345678"
+                Location        = new Point(2, 2),
+                Width           = BASE_FORM_W - 200,
+                Font            = new Font("Consolas", 9),
+                PlaceholderText = "game.exe+0x1234  or  0x12345678"
             };
             lblBasePreview = new Label
             {
-                Location  = new Point(pnlPointer.Width - 125, 4),
-                Width     = 120,
+                Location  = new Point(txtBaseAddr.Right + 6, 4),
+                Width     = BASE_FORM_W - txtBaseAddr.Right - 10,
                 ForeColor = Color.DarkBlue,
                 Font      = new Font("Consolas", 9),
                 Text      = "-> ???",
@@ -394,8 +435,12 @@ namespace MemoryViewer.Sources.Views
 
             // Reposition base address row below offset rows
             int baseRowY = y + S(1);
+            int baseTxtW = S(BASE_FORM_W - 200);   // same proportion as creation
             txtBaseAddr.Location    = new Point(S(2), baseRowY + S(1));
-            lblBasePreview.Location = new Point(txtBaseAddr.Right + S(4), baseRowY + S(4));
+            txtBaseAddr.Width       = baseTxtW;
+            lblBasePreview.Location = new Point(txtBaseAddr.Right + S(4), baseRowY + S(2));
+            lblBasePreview.Width    = pnlPointer.Width - txtBaseAddr.Right - S(6);
+            lblBasePreview.Height   = S(BASE_ROW_H);
             pnlPointer.Height       = baseRowY + S(BASE_ROW_H) + S(6);
 
             UpdateLayout();
@@ -441,12 +486,48 @@ namespace MemoryViewer.Sources.Views
             }
 
             // ── Pointer mode ─────────────────────────────────────────────
+            //  Cheat Engine pointer logic:
+            //    base_     = static address (what user typed, e.g. 0x00964CDC)
+            //    basePtrVal = *base_  (value read FROM that address)
+            //    offset row 0: basePtrVal + offsets[0]  -> addr0
+            //    offset row 1: *addr0  + offsets[1]     -> addr1
+            //    ...
+            //    final address = last computed addr
+            //    final value   = read value at final address
+
             IntPtr base_ = ResolveBaseAddr();
-            lblBasePreview.Text = base_ != IntPtr.Zero
-                ? $"-> {HexConverter.ToHexString(base_)}"
+
+            // Show the resolved static address in the base field preview only
+            // (no memory read here – that's done per-step below)
+            if (base_ == IntPtr.Zero || _reader == null)
+            {
+                lblBasePreview.Text = "-> ???";
+                SetStepPreviews(null, base_);
+                txtFinalAddr.Text    = "???";
+                lblFinalPreview.Text = "= ???";
+                return;
+            }
+
+            // Step 0: read pointer from base_
+            int ptrSize = _procMgr?.TargetPtrSize ?? IntPtr.Size;
+            IntPtr basePtrVal = IntPtr.Zero;
+            bool baseReadOk = false;
+            try
+            {
+                byte[] bytes = _reader.ReadBytes(base_, ptrSize);
+                long raw = ptrSize == 4 ? BitConverter.ToInt32(bytes, 0) : BitConverter.ToInt64(bytes, 0);
+                basePtrVal = (IntPtr)(uint)raw;   // mask to 32-bit if needed
+                if (ptrSize == 8) basePtrVal = (IntPtr)raw;
+                baseReadOk = true;
+            }
+            catch { }
+
+            // lblBasePreview shows the pointer value at base_
+            lblBasePreview.Text = baseReadOk
+                ? $"-> {HexConverter.ToHexString(basePtrVal)}"
                 : "-> ???";
 
-            if (base_ == IntPtr.Zero || _reader == null)
+            if (!baseReadOk)
             {
                 SetStepPreviews(null, base_);
                 txtFinalAddr.Text    = "???";
@@ -454,33 +535,40 @@ namespace MemoryViewer.Sources.Views
                 return;
             }
 
-            // Walk pointer chain, capture each intermediate step
-            var steps = new List<(IntPtr from, IntPtr to)>();
-            IntPtr cur    = base_;
-            bool   allOk  = true;
+            // Walk the offset chain.
+            // Each step: take current ptr value, add offset → new address.
+            // For next step: dereference that new address to get next ptr value.
+            var steps = new List<(IntPtr addrIn, int offset, IntPtr addrOut)>();
+            IntPtr cur = basePtrVal;   // start from the dereferenced base
+            bool allOk = true;
 
             for (int i = 0; i < _offsets.Count; i++)
             {
-                IntPtr from = cur;
-                try
+                IntPtr addrOut = IntPtr.Add(cur, _offsets[i]);
+                steps.Add((cur, _offsets[i], addrOut));
+
+                // For next iteration: dereference addrOut to get next pointer
+                if (i < _offsets.Count - 1)
                 {
-                    byte[] bytes = _reader.ReadBytes(cur, IntPtr.Size);
-                    long   raw   = IntPtr.Size == 8
-                        ? BitConverter.ToInt64(bytes, 0)
-                        : BitConverter.ToInt32(bytes, 0);
-                    cur = (IntPtr)raw;
-                    if (cur == IntPtr.Zero) { allOk = false; break; }
-                    cur = IntPtr.Add(cur, _offsets[i]);
-                    steps.Add((from, cur));
+                    try
+                    {
+                        byte[] b = _reader.ReadBytes(addrOut, ptrSize);
+                        long r = ptrSize == 4 ? BitConverter.ToInt32(b, 0) : BitConverter.ToInt64(b, 0);
+                        cur = ptrSize == 4 ? (IntPtr)(uint)r : (IntPtr)r;
+                    }
+                    catch { allOk = false; break; }
                 }
-                catch { allOk = false; break; }
+                else
+                {
+                    cur = addrOut; // last step: final address
+                }
             }
 
             SetStepPreviews(allOk ? steps : null, base_);
 
             if (allOk && steps.Count > 0)
             {
-                IntPtr final = steps[^1].to;
+                IntPtr final = steps[^1].addrOut;
                 txtFinalAddr.Text    = HexConverter.ToHexString(final);
                 lblFinalPreview.Text = $"= {ReadValueAt(final)}";
             }
@@ -491,8 +579,7 @@ namespace MemoryViewer.Sources.Views
             }
         }
 
-        /// <summary>Update the step preview label of every offset row.</summary>
-        private void SetStepPreviews(List<(IntPtr from, IntPtr to)>? steps, IntPtr baseAddr)
+        private void SetStepPreviews(List<(IntPtr addrIn, int offset, IntPtr addrOut)>? steps, IntPtr baseAddr)
         {
             int idx = 0;
             foreach (Control row in pnlRows.Controls)
@@ -502,26 +589,20 @@ namespace MemoryViewer.Sources.Views
                     if (c is Label lbl && lbl.Tag?.ToString() == "preview")
                     {
                         if (idx >= _offsets.Count) break;
-                        string offStr  = FormatOffset(_offsets[idx]);
-                        bool   isFirst = (idx == 0);
 
                         if (steps == null || idx >= steps.Count)
                         {
-                            string bh = baseAddr != IntPtr.Zero
-                                ? HexConverter.ToHexString(baseAddr)
-                                : "????????";
-                            lbl.Text = isFirst
-                                ? $"{bh}+{offStr} = ????????"
-                                : $"[????????]+{offStr} -> ????????";
+                            lbl.Text = "????????";
                         }
                         else
                         {
-                            var (from, to) = steps[idx];
-                            string fromH = HexConverter.ToHexString(from);
-                            string toH   = HexConverter.ToHexString(to);
-                            lbl.Text = isFirst
-                                ? $"{fromH}+{offStr} = {toH}"
-                                : $"[{fromH}]+{offStr} -> {toH}";
+                            var (addrIn, offset, addrOut) = steps[idx];
+                            string inH  = HexConverter.ToHexString(addrIn);
+                            string outH = HexConverter.ToHexString(addrOut);
+                            string offStr = offset >= 0
+                                ? $"+0x{offset:X}"
+                                : $"-0x{-offset:X}";
+                            lbl.Text = $"{inH} {offStr} = {outH}";
                         }
                         break;
                     }
@@ -625,7 +706,11 @@ namespace MemoryViewer.Sources.Views
                     MessageBox.Show("Địa chỉ không hợp lệ.\nNhập hex (0x00401000) hoặc decimal.", "Error");
                     return;
                 }
+                // Static address
                 ResolvedAddress = direct;
+                IsPointer       = false;
+                BaseExpression  = txtFinalAddr.Text.Trim();
+                OutputOffsets   = new List<int>();
             }
             else
             {
@@ -651,7 +736,11 @@ namespace MemoryViewer.Sources.Views
                         MessageBox.Show("Pointer chain trả về null (địa chỉ không hợp lệ).", "Null Pointer");
                         return;
                     }
+                    // Pointer chain
                     ResolvedAddress = resolved;
+                    IsPointer       = true;
+                    BaseExpression  = txtBaseAddr.Text.Trim();
+                    OutputOffsets   = new List<int>(_offsets);
                 }
                 catch (Exception ex)
                 {

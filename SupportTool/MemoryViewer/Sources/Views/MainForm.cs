@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 using MemoryViewer.Sources.Core;
@@ -14,6 +15,7 @@ namespace MemoryViewer.Sources.Views
         private Button btnSelectProcess = null!;
         private Label lblStatus = null!;
         private TextBox txtBaseAddress = null!;
+        private Label lblBaseMode = null!;   // shows [PTR] or [STATIC]
         private Button btnAddAddress = null!;
         private TextBox txtDeltaFrom = null!;
         private TextBox txtDeltaTo = null!;
@@ -40,6 +42,9 @@ namespace MemoryViewer.Sources.Views
         private MemoryReader _memoryReader = null!;
         private BindingList<MemoryItem> _memoryList = null!;
         private System.Windows.Forms.Timer _updateTimer = null!;
+
+        /// <summary>Cấu hình base address hiện tại (pointer hoặc tĩnh).</summary>
+        private BaseAddressConfig _baseConfig = new();
 
         // Map ComboBox stride text -> byte sizes
         private static readonly int[] StrideBytes = { 1, 2, 4, 8 };
@@ -101,22 +106,34 @@ namespace MemoryViewer.Sources.Views
             {
                 Text      = "Base Address:",
                 Location  = new Point(PAD, y2 + 4),
-                Width     = 92,
+                Width     = 85,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             txtBaseAddress = new TextBox
             {
-                Text     = "0x00000000",
-                Location = new Point(PAD + 94, y2),
-                Width    = 160,
-                Height   = RH,
-                Font     = new Font("Consolas", 9)
+                Text      = "0x00000000",
+                Location  = new Point(PAD + 85, y2),
+                Width     = 200,
+                Height    = RH,
+                Font      = new Font("Consolas", 9),
+                ReadOnly  = true,
+                BackColor = Color.FromArgb(240, 244, 255)
+            };
+            // Badge label: STATIC or PTR
+            lblBaseMode = new Label
+            {
+                Text      = "● STATIC",
+                Location  = new Point(PAD + 290, y2 + 4),
+                Width     = 75,
+                ForeColor = Color.SteelBlue,
+                Font      = new Font(this.Font, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft
             };
             btnAddAddress = new Button
             {
-                Text      = "Add Address / Pointer",
-                Location  = new Point(PAD + 94 + 164, y2),
-                Width     = 160, Height = RH,
+                Text      = "✒ Configure...",
+                Location  = new Point(PAD + 370, y2),
+                Width     = 140, Height = RH,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White
             };
@@ -128,7 +145,7 @@ namespace MemoryViewer.Sources.Views
             {
                 Text      = "Delta From:",
                 Location  = new Point(PAD, y3 + 4),
-                Width     = 68,
+                Width     = 70,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             txtDeltaFrom = new TextBox
@@ -142,8 +159,8 @@ namespace MemoryViewer.Sources.Views
             var lblTo = new Label
             {
                 Text      = "To:",
-                Location  = new Point(PAD + 136, y3 + 4),
-                Width     = 22,
+                Location  = new Point(PAD + 135, y3 + 4),
+                Width     = 25,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             txtDeltaTo = new TextBox
@@ -157,13 +174,13 @@ namespace MemoryViewer.Sources.Views
             var lblStride = new Label
             {
                 Text      = "Stride:",
-                Location  = new Point(PAD + 228, y3 + 4),
-                Width     = 44,
+                Location  = new Point(PAD + 225, y3 + 4),
+                Width     = 45,
                 TextAlign = ContentAlignment.MiddleLeft
             };
             cmbStride = new ComboBox
             {
-                Location      = new Point(PAD + 274, y3),
+                Location      = new Point(PAD + 270, y3),
                 Width         = 90,
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
@@ -174,7 +191,7 @@ namespace MemoryViewer.Sources.Views
             {
                 Text      = "▶  Scan / Apply",
                 Location  = new Point(PAD + 370, y3),
-                Width     = 120, Height = RH,
+                Width     = 140, Height = RH,
                 BackColor = Color.FromArgb(100, 180, 240),
                 FlatStyle = FlatStyle.Flat,
                 Font      = new Font(this.Font, FontStyle.Bold)
@@ -293,7 +310,7 @@ namespace MemoryViewer.Sources.Views
 
             pnlTop.Controls.AddRange(new Control[] {
                 btnSelectProcess, lblStatus,
-                lblBase, txtBaseAddress, btnAddAddress,
+                lblBase, txtBaseAddress, lblBaseMode, btnAddAddress,
                 lblFrom, txtDeltaFrom, lblTo, txtDeltaTo, lblStride, cmbStride, btnScan,
                 pnlRight
             });
@@ -473,16 +490,23 @@ namespace MemoryViewer.Sources.Views
             };
 
             // ── Add Address / Pointer ─────────────────────────
-            // Cho phép mở dialog kể cả chưa attach (để nhập raw address).
-            // Nếu dùng Pointer mode thì cần process đã attach để resolve.
+            // Truyền _baseConfig vào để form pre-populate config cũ.
             btnAddAddress.Click += (s, e) =>
             {
                 var reader = _processManager.ProcessHandle != IntPtr.Zero ? _memoryReader : null;
-                using var frm = new AddAddressForm(reader, _processManager);
+                using var frm = new AddAddressForm(reader, _processManager, _baseConfig);
                 if (frm.ShowDialog(this) == DialogResult.OK && frm.ResolvedAddress != IntPtr.Zero)
                 {
-                    // Gán địa chỉ đã resolve vào Base Address
+                    // Lưu đầy đủ config (pointer chain hoặc static)
+                    _baseConfig = new BaseAddressConfig
+                    {
+                        IsPointer  = frm.IsPointer,
+                        Expression = frm.BaseExpression,
+                        Offsets    = frm.OutputOffsets.ToArray()
+                    };
+                    // Hiển thị resolved address (readonly)
                     txtBaseAddress.Text = HexConverter.ToHexString(frm.ResolvedAddress);
+                    UpdateBaseLabel();
                 }
             };
 
@@ -494,11 +518,16 @@ namespace MemoryViewer.Sources.Views
                     MessageBox.Show("Attach to a process first.", "No Process");
                     return;
                 }
-                if (!HexConverter.TryParseHexOrDec(txtBaseAddress.Text, out IntPtr baseAddr))
+                // Re-resolve pointer chain (hoặc dùng địa chỉ tĩnh)
+                IntPtr baseAddr = GetCurrentBaseAddress();
+                if (baseAddr == IntPtr.Zero)
                 {
-                    MessageBox.Show("Invalid base address.", "Error");
+                    MessageBox.Show("Base address không hợp lệ hoặc pointer chain không resolve được.", "Error");
                     return;
                 }
+                // Cập nhật hiển thị resolved address
+                txtBaseAddress.Text = HexConverter.ToHexString(baseAddr);
+
                 if (!int.TryParse(txtDeltaFrom.Text, out int from))
                 { MessageBox.Show("Delta From không hợp lệ.", "Error"); return; }
                 if (!int.TryParse(txtDeltaTo.Text, out int to))
@@ -582,10 +611,18 @@ namespace MemoryViewer.Sources.Views
                 item.UpdateFromBytes(bytes);
                 anyChanged = true;
 
+                // Determine which value to compare against filter:
+                // - Float / Double  → FloatValue  (actual float)
+                // - Integer types   → IntValue     (avoid float bit-pattern misinterpretation)
+                double cmpValue = (item.DataType == MemoryDataType.Float ||
+                                   item.DataType == MemoryDataType.Double)
+                    ? item.FloatValue
+                    : (double)item.IntValue;
+
                 // Apply value filter on ALL grid
                 if (i < gridAll.Rows.Count)
                 {
-                    bool passFilter = !needFilter || (item.FloatValue >= filterMin && item.FloatValue <= filterMax);
+                    bool passFilter = !needFilter || (cmpValue >= filterMin && cmpValue <= filterMax);
                     bool wantVisible = passFilter; // in "All" tab: visible regardless of IsHidden
                     try
                     {
@@ -598,7 +635,7 @@ namespace MemoryViewer.Sources.Views
                 // Apply hide + value filter on ACTIVE grid
                 if (i < gridActive.Rows.Count)
                 {
-                    bool passFilter = !needFilter || (item.FloatValue >= filterMin && item.FloatValue <= filterMax);
+                    bool passFilter = !needFilter || (cmpValue >= filterMin && cmpValue <= filterMax);
                     bool wantVisible = passFilter && !item.IsHidden;
                     try
                     {
@@ -672,6 +709,97 @@ namespace MemoryViewer.Sources.Views
             }
         }
 
+        /// <summary>Cập nhật lblBaseMode theo _baseConfig.</summary>
+        private void UpdateBaseLabel()
+        {
+            if (_baseConfig.IsPointer)
+            {
+                string offsetsStr = _baseConfig.Offsets.Length > 0
+                    ? string.Join(", ", System.Array.ConvertAll(_baseConfig.Offsets,
+                        o => o >= 0 ? $"0x{o:X}" : $"-0x{-o:X}"))
+                    : "(none)";
+                lblBaseMode.Text      = $"◇ PTR";
+                lblBaseMode.ForeColor = Color.Purple;
+                // Tooltip chi tiết
+                if (_toolTip == null) _toolTip = new ToolTip();
+                _toolTip.SetToolTip(lblBaseMode,
+                    $"Pointer: {_baseConfig.Expression}\nOffsets: [{offsetsStr}]");
+                _toolTip.SetToolTip(txtBaseAddress,
+                    $"Pointer: {_baseConfig.Expression}\nOffsets: [{offsetsStr}]");
+            }
+            else
+            {
+                lblBaseMode.Text      = "● STATIC";
+                lblBaseMode.ForeColor = Color.SteelBlue;
+                if (_toolTip != null)
+                {
+                    _toolTip.SetToolTip(lblBaseMode, "Static address");
+                    _toolTip.SetToolTip(txtBaseAddress, string.Empty);
+                }
+            }
+        }
+
+        private ToolTip? _toolTip;
+
+        /// <summary>
+        /// Resolve base address động:
+        ///   - IsPointer=true  → resolve pointer chain từ Expression + Offsets
+        ///   - IsPointer=false → parse Expression trực tiếp (hex/dec)
+        /// </summary>
+        private IntPtr GetCurrentBaseAddress()
+        {
+            if (!_baseConfig.IsPointer)
+            {
+                HexConverter.TryParseHexOrDec(_baseConfig.Expression, out IntPtr addr);
+                return addr;
+            }
+
+            // Pointer mode: cần process đã attach
+            if (_processManager.ProcessHandle == IntPtr.Zero) return IntPtr.Zero;
+
+            try
+            {
+                IntPtr baseStatic = ResolveModuleExpression(_baseConfig.Expression);
+                if (baseStatic == IntPtr.Zero) return IntPtr.Zero;
+                return _memoryReader.ResolvePointer(baseStatic, _baseConfig.Offsets);
+            }
+            catch { return IntPtr.Zero; }
+        }
+
+        /// <summary>Resolve biểu thức "module.exe+0xOFFSET" hoặc "0xADDR".</summary>
+        private IntPtr ResolveModuleExpression(string expression)
+        {
+            expression = expression.Trim().Trim('[', ']');
+            if (string.IsNullOrWhiteSpace(expression)) return IntPtr.Zero;
+
+            int plusIdx = expression.LastIndexOf('+');
+            if (plusIdx > 0)
+            {
+                string modName    = expression[..plusIdx].Trim('"', '\'', ' ');
+                string offsetPart = expression[(plusIdx + 1)..].Trim();
+
+                if (!HexConverter.TryParseOffset(offsetPart, out int modOffset))
+                    modOffset = 0;
+
+                var proc = _processManager.SelectedProcess;
+                if (proc != null)
+                {
+                    try
+                    {
+                        foreach (ProcessModule m in proc.Modules)
+                        {
+                            if (m.ModuleName.Equals(modName, StringComparison.OrdinalIgnoreCase))
+                                return IntPtr.Add(m.BaseAddress, modOffset);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            HexConverter.TryParseHexOrDec(expression, out IntPtr result);
+            return result;
+        }
+
         /// <summary>Lấy MemoryItem từ row index, xử lý cả 2 grid cùng DataSource.</summary>
         private MemoryItem? GetItemFromRow(DataGridView grid, int rowIndex)
         {
@@ -693,9 +821,9 @@ namespace MemoryViewer.Sources.Views
         {
             var state = new AppState
             {
-                BaseAddress  = txtBaseAddress.Text,
-                DeltaFrom    = int.TryParse(txtDeltaFrom.Text, out int f) ? f : -64,
-                DeltaTo      = int.TryParse(txtDeltaTo.Text,   out int t) ? t : 256,
+                BaseConfig   = _baseConfig,
+                DeltaFrom    = int.TryParse(txtDeltaFrom.Text, out int f) ? f : -1000,
+                DeltaTo      = int.TryParse(txtDeltaTo.Text,   out int t) ? t : 1000,
                 StrideIndex  = cmbStride.SelectedIndex
             };
 
@@ -720,12 +848,24 @@ namespace MemoryViewer.Sources.Views
         {
             var state = StateManager.Load();
 
-            // Restore settings
-            txtBaseAddress.Text     = state.BaseAddress;
+            // Migrate legacy BaseAddress string → BaseConfig static
+            if (!state.BaseConfig.IsPointer
+                && state.BaseConfig.Expression == "0x00000000"
+                && !string.IsNullOrEmpty(state.BaseAddress))
+            {
+                state.BaseConfig.Expression = state.BaseAddress;
+            }
+
+            // Restore config
+            _baseConfig             = state.BaseConfig;
+            txtBaseAddress.Text     = _baseConfig.IsPointer
+                                        ? "(pointer – click Scan to resolve)"
+                                        : _baseConfig.Expression;
             txtDeltaFrom.Text       = state.DeltaFrom.ToString();
             txtDeltaTo.Text         = state.DeltaTo.ToString();
             if (state.StrideIndex >= 0 && state.StrideIndex < cmbStride.Items.Count)
                 cmbStride.SelectedIndex = state.StrideIndex;
+            UpdateBaseLabel();
 
             // Restore items
             _memoryList.Clear();
